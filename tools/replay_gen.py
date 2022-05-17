@@ -31,6 +31,10 @@ try:
 
 except ModuleNotFoundError:
     has_yaml = False
+    print('Module "ruamel.yaml" not found, please install using command "pip install ruamel.yaml".')
+    output_json = input('Continue with JSON formated replay files? [y/N]: ')
+    if output_json.lower() != 'y':
+        exit(0)
 
 http_status_codes = {
     100: 'Continue',
@@ -178,41 +182,40 @@ class ReplaySession:
         return
 
     def random_transaction(self):
-        transaction = {}
-        transaction['connection-time'] = int(datetime.datetime.utcnow().timestamp() * 1000000000)
-
-        transaction['all'] = {}
-        transaction['all']['headers'] = {}
-        transaction['all']['headers']['fields'] = []
         new_uuid = uuid.uuid4().hex
         new_uuid = new_uuid[:8] + '-' + new_uuid[8:12] + '-' + \
             new_uuid[12:16] + '-' + new_uuid[16:20] + '-' + new_uuid[20:]
-        transaction['all']['headers']['fields'].append(['uuid', new_uuid])
 
-        if has_yaml:
-            for i in range(len(transaction['all']['headers']['fields'])):
-                transaction['all']['headers']['fields'][i] = flow_style_list(transaction['all']['headers']['fields'][i])
+        transaction = {}
+        transaction['connection-time'] = int(datetime.datetime.utcnow().timestamp() * 1000000000)
 
         transaction['client-request'] = {}
-        transaction['client-request']['version'] = '1.1'
-        transaction['client-request']['scheme'] = 'https' if self.tls_ver > 0 else 'http'
-        transaction['client-request']['method'] = random.choice(['GET'])
-        transaction['client-request']['url'] = self.url
 
-        req_headers = {}
-        req_headers['encoding'] = 'esc_json'
-        req_headers['fields'] = []
-        if transaction['client-request']['method'] != 'GET':
-            request_size = random.randint(1, 1000)
-            req_headers['fields'].append(['Content-Length', str(request_size)])
+        # TODO: add support for other methods
+        request_method = random.choice(['GET'])
+        request_size = random.randint(1, 1000) if request_method == 'GET' else 0
+
+        if self.http_ver == 1.1:
+            transaction['client-request']['method'] = request_method
+            transaction['client-request']['scheme'] = 'https' if self.tls_ver > 0 else 'http'
+            transaction['client-request']['url'] = self.url
+            transaction['client-request']['version'] = str(self.http_ver)
+
+            req_headers = {}
+            req_headers['fields'] = []
+            req_headers['fields'].append(['Host', self.hostname])
         else:
-            request_size = 0
-        req_headers['fields'].append(['Host', self.hostname])
+            req_headers = {}
+            req_headers['fields'] = []
+            req_headers['fields'].append([':method', request_method])
+            req_headers['fields'].append([':scheme', 'https' if self.tls_ver > 0 else 'http'])
+            req_headers['fields'].append([':authority', self.hostname])
+            req_headers['fields'].append([':path', self.url])
+        req_headers['fields'].append(['uuid', new_uuid])
 
         if has_yaml:
             for i in range(len(req_headers['fields'])):
                 req_headers['fields'][i] = flow_style_list(req_headers['fields'][i])
-
         transaction['client-request']['headers'] = req_headers
 
         transaction['client-request']['content'] = {}
@@ -220,33 +223,42 @@ class ReplaySession:
         transaction['client-request']['content']['size'] = request_size
 
         transaction['proxy-request'] = copy.deepcopy(transaction['client-request'])
-        # transaction['proxy-request']['url'] = '/'
 
         transaction['server-response'] = {}
-        transaction['server-response']['status'] = random.choice([200])
-        transaction['server-response']['reason'] = http_status_codes[transaction['server-response']['status']]
 
+        response_status = random.choice([200, 404])
         response_size = random.randint(1, 1000)
-        res_headers = {}
-        res_headers['encoding'] = 'esc_json'
-        res_headers['fields'] = []
-        res_headers['fields'].append(['Content-Length', str(response_size)])
-        res_headers['fields'].append(['Connection', random.choices(
-            ['close', 'keep-alive'], weights=[1, 10], k=1)[0]])
-        if res_headers['fields'][-1][-1] == 'keep-alive':
-            res_headers['fields'].append(['Keep-Alive', 'timeout=1, max=100'])
+
+        if self.http_ver == 1.1:
+            transaction['server-response']['status'] = response_status
+            transaction['server-response']['reason'] = http_status_codes[response_status]
+
+            res_headers = {}
+            res_headers['fields'] = []
+            res_headers['fields'].append(['Content-Type', 'text/html'])
+            if random.choices([1, 2]) == 1:
+                res_headers['fields'].append(['Transfer-Encoding', 'chunked'])
+            res_headers['fields'].append(['Connection', random.choices(
+                ['close', 'keep-alive'], weights=[1, 10], k=1)[0]])
+            if res_headers['fields'][-1][-1] == 'keep-alive':
+                res_headers['fields'].append(['Keep-Alive', 'timeout=1, max=100'])
+        else:
+            res_headers = {}
+            res_headers['fields'] = []
+            res_headers['fields'].append([':status', response_status])
+            res_headers['fields'].append(['Content-Type', 'text/html'])
+        res_headers['fields'].append(['uuid', new_uuid])
 
         if has_yaml:
             for i in range(len(res_headers['fields'])):
                 res_headers['fields'][i] = flow_style_list(res_headers['fields'][i])
-
         transaction['server-response']['headers'] = res_headers
 
         transaction['server-response']['content'] = {}
         transaction['server-response']['content']['encoding'] = 'plain'
         transaction['server-response']['content']['size'] = response_size
 
-        transaction['proxy-response'] =  copy.deepcopy(transaction['server-response'])
+        transaction['proxy-response'] = copy.deepcopy(transaction['server-response'])
         return transaction
 
     @staticmethod
@@ -345,8 +357,13 @@ def parse_args():
                         help='Path to a directory where the replay files are generated.')
     parser.add_argument('-p', '--prefix', dest='prefix', type=str, default='',
                         help='Prefix for the replay file names.')
-    parser.add_argument('-j', '--out-json', dest='out_json', default=False, action='store_true',
-                        help='Dump file in json format, if not specified then output yaml format instead.')
+    parser.add_argument(
+        '-j',
+        '--out-json',
+        dest='out_json',
+        default=False,
+        action='store_true',
+        help='Dump replay files in JSON format. By default replay files will be formatted as YAML.')
     return parser.parse_args()
 
 
