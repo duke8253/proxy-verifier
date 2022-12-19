@@ -781,6 +781,10 @@ on_frame_recv_cb(nghttp2_session * /* session */, nghttp2_frame const *frame, vo
   case NGHTTP2_PRIORITY:
     break;
   case NGHTTP2_RST_STREAM:
+    errata.note(
+        S_DIAG,
+        "Received RST_STREAM frame with stream id {}",
+        frame->hd.stream_id);
     break;
   case NGHTTP2_SETTINGS: {
     nghttp2_settings const &settings_frame{frame->settings};
