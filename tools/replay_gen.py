@@ -152,8 +152,6 @@ class ReplaySession:
         self.random_ip_ver()
         self.session['protocol'].append({'name': 'ip', 'version': self.ip_ver})
 
-        self.session['connection-time'] = int(datetime.datetime.utcnow().timestamp() * 1000000000)
-
         for t in range(transaction_num):
             self.transactions.append(self.random_transaction())
 
