@@ -186,16 +186,6 @@ class ReplaySession:
             new_uuid[12:16] + '-' + new_uuid[16:20] + '-' + new_uuid[20:]
 
         transaction = {}
-        transaction['connection-time'] = int(datetime.datetime.utcnow().timestamp() * 1000000000)
-
-        transaction['all'] = {}
-        transaction['all']['headers'] = {}
-        transaction['all']['headers']['fields'] = []
-        if has_yaml:
-            transaction['all']['headers']['fields'].append(flow_style_list(['uuid', new_uuid]))
-        else:
-            transaction['all']['headers']['fields'].append(['uuid', new_uuid])
-
         transaction['client-request'] = {}
 
         request_method = random.choice(['GET', 'POST'])
@@ -222,6 +212,8 @@ class ReplaySession:
             req_headers['fields'].append(['Content-Type', 'test/html'])
             req_headers['fields'].append(['Content-Length', request_size])
 
+        req_headers['fields'].append(['uuid', new_uuid])
+
         if has_yaml:
             for i, field in enumerate(req_headers['fields']):
                 req_headers['fields'][i] = flow_style_list(field)
@@ -232,7 +224,7 @@ class ReplaySession:
         transaction['client-request']['content']['encoding'] = 'plain'
         transaction['client-request']['content']['size'] = request_size
 
-        transaction['proxy-request'] = copy.deepcopy(transaction['client-request'])
+        # transaction['proxy-request'] = copy.deepcopy(transaction['client-request'])
 
         transaction['server-response'] = {}
 
@@ -267,7 +259,11 @@ class ReplaySession:
         transaction['server-response']['content']['encoding'] = 'plain'
         transaction['server-response']['content']['size'] = response_size
 
-        transaction['proxy-response'] = copy.deepcopy(transaction['server-response'])
+        transaction['proxy-response'] = {}
+        transaction['proxy-response']['status'] = response_status
+        transaction['proxy-response']['reason'] = http_status_codes[response_status]
+
+        # transaction['proxy-response'] = copy.deepcopy(transaction['server-response'])
         return transaction
 
     @staticmethod
